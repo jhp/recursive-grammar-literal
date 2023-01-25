@@ -1,0 +1,22 @@
+{
+  "name": "recursive-grammar-literal",
+  "version": "1.0.0",
+  "description": "Use recursive functions to specify a context-free grammar",
+  "main": "index.js",
+  "peerDependencies": {
+    "church-cat": "^1.0.0"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jhp/recursive-grammar-literal.git"
+  },
+  "author": "Jason Priestley <jasonhpriestley@gmail.com>",
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/jhp/recursive-grammar-literal/issues"
+  },
+  "homepage": "https://github.com/jhp/recursive-grammar-literal#readme"
+}
