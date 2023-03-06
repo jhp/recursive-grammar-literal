@@ -5,10 +5,11 @@ let nodeSchema = ({
     right: [I],
     seq: [I, I],
     eps: [],
-    tok: [K]
+    tok: [K],
+    placeholder: []
 });
 
-let { left: LeftN, right: RightN, seq: SeqN, eps: EpsN, tok: TokN } = constructors( nodeSchema );
+let { left: LeftN, right: RightN, seq: SeqN, eps: EpsN, tok: TokN, placeholder: PlaceholderN } = constructors( nodeSchema );
 
 let emptyNode = function(gmr) {
     let f = () => null, done = false;
@@ -86,18 +87,19 @@ let nodeGrammar = (gmr, node) => {
         right: (r) => up => (r(resolveJumps([up[0]({alt: (l,r) => r}), up])), up[0]),
         seq: (l,r) => up => (l(resolveJumps([up[0]({seq: (l,r) => l}), up])), r(resolveJumps([up[0]({seq: (l,r) => r}), up])), up[0]),
         eps: () => up => up[0],
-        tok: () => up => up[0]
+        tok: () => up => up[0],
+        placeholder: () => up => up[0]
     }, [gmr]);
 }
 
-let llParser = gmr => {
+let llParser = (gmr) => {
     let emptyNodeG = emptyNode(gmr);
     let firstSetG = firstSet(gmr, emptyNodeG);
     return cata(gmr, {
         eps: () => up => input => [EpsN(), input],
         tok: (t) => up => input => {
             if(input.length && input[0].type === t) {
-                return [TokN(input[0]), input[1]];
+                return [TokN(input[0].value), input[1]];
             } else {
                 throw new Error(`Parse failed trying to match token ${t} with ${input[0].type}`);
             }
@@ -142,7 +144,7 @@ let llParser = gmr => {
     }, [])(gmr);
 };
 
-function extractValue(gmr, adt, fns) {
+function extractValue(gmr, adt, fns, ftoken, fplaceholder) {
     let nodeGrammarF = nodeGrammar(gmr, adt);
     function runFns(adt, args) {
         let g = nodeGrammarF(adt);
@@ -153,9 +155,10 @@ function extractValue(gmr, adt, fns) {
         left: function(l) { return runFns(this, l) },
         right: function(r) { return runFns(this, r) },
         seq: function(l,r) { return runFns(this, [...l, ...r]) },
-        tok: function(t) { return runFns(this, [t.value]) },
-        eps: function() { return runFns(this, []) }
+        tok: function(t) { return runFns(this, [ftoken.call(this, t)]) },
+        eps: function() { return runFns(this, []) },
+        placeholder: function() { return fplaceholder() }
     })(adt)[0];
 }
 
-module.exports = {llParser, extractValue};
+module.exports = {llParser, extractValue, LeftN, RightN, SeqN, EpsN, TokN, PlaceholderN, nodeSchema, emptyNode, nodeGrammar };

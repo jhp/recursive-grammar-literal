@@ -170,34 +170,36 @@ let inline = ((memo) => {
     }
 })(new Map());
 
-let many = combinator(function(inner) {
+let many = combinator(function(inner, fold, nil) {
     return oneOf(
-        inline(() => []), 
-        many1(inner));
+        inline(() => nil(), nil), 
+        many1(inner, fold, nil));
 });
 
-let many1 = combinator(function(inner) {
-    return [inner(), ...many(inner)()];
+let many1 = combinator(function(inner, fold, nil) {
+    return fold(inner(), many(inner, fold, nil)());
 });
 
-let sepBy1 = combinator(function(elem, sep) {
+// e | (e ;) (e/;)
+// e (; e | nil)
+
+let sepBy1 = combinator(function(elem, sep, foldElem, foldSep, nil) {
     let e = elem();
-    let [es,ss] = oneOf(
-        inline(() => { return [[], []]; }),
+    let es = oneOf(
+        inline(() => { return nil(); }, nil),
         inline(() => {
             let s = sep();
-            let res = sepBy(elem, sep)();
-            let [es, ss] = res;
-            return [es, [s, ...ss]];
-        }, elem, sep)
+            let res = sepBy1(elem, sep, foldElem, foldSep, nil)();
+            return foldSep(s, res);
+        }, elem, sep, foldElem, foldSep, nil)
     );
-    return [[e,...es], ss];
+    return foldElem(e, es);
 });
 
-let sepBy = combinator(function(elem, sep) {
+let sepBy = combinator(function(elem, sep, foldElem, foldSep, nil) {
     return oneOf(
-        inline(() => [[], []]),
-        sepBy1(elem, sep));
+        inline(() => { return nil(); }, nil),
+        sepBy1(elem, sep, foldElem, foldSep, nil));
 });
 
 let between = combinator(function(left, right, elem) {
