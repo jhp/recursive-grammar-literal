@@ -78,7 +78,7 @@ function* tokenizer(out) {
 
 function logADT(adt, showADT = (adt) => ``, showK = (x) => `${x}`) {
     let schema = getSchema(adt);
-    cata(adt, Object.fromEntries(
+    cata(Object.fromEntries(
         Object.entries(schema).map(([name,kinds]) => ([name, function(...args) {
             let self = this;
             return [`${name} - ${showADT(this)}`,
@@ -86,7 +86,7 @@ function logADT(adt, showADT = (adt) => ``, showK = (x) => `${x}`) {
                         K: () => [showK(arg)],
                         I: () => arg
                     })).flat(1).map(line => `++${line}`)];
-        }]))))(adt).map(line => console.log(line));
+        }]))))(adt, adt).map(line => console.log(line));
 }
 
 let testInput = JSON.stringify([ "foo", {"bar": "baz"}, 123 ]);

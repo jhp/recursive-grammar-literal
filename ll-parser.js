@@ -5,81 +5,75 @@ let nodeSchema = ({
     right: [I],
     seq: [I, I],
     eps: [],
-    tok: [K],
+    tok: [K, K],
     placeholder: []
 });
 
 let { left: LeftN, right: RightN, seq: SeqN, eps: EpsN, tok: TokN, placeholder: PlaceholderN } = constructors( nodeSchema );
 
-let emptyNode = (function(memo) {
+let fixGrammarCata = cataF => {
+    let memo = new WeakMap();
     return function(gmr) {
         if(memo.has(gmr)) return memo.get(gmr);
-        let f = () => null, done = false;
+        let f, done = false;
         while(!done) {
             let old = f;
             done = true;
             f = cata({
                 alt: function(l,r) { 
                     return up => {
-                        let lv = l([old(this), up]), rv = r([old(this), up]);
-                        let res = (lv && LeftN(lv)) || (rv && RightN(rv)) ;
-                        done = done && Boolean(res) === Boolean(old(this));
-                        return res;
+                        let lv = l([old ? old(this) : null, up]), rv = r([old ? old(this) : null, up]);
+                        if(old && this({alt: (l,r) => old(l) === lv && old(r) === rv})) {
+                            return old(this);
+                        } else {
+                            done = false;
+                            return cataF(gmr).alt.call(this, lv,rv);
+                        }
                     }
                 },
                 seq: function(l,r) {
                     return up => {
-                        let lv = l([old(this), up]), rv = r([old(this), up]);
-                        let res = lv && rv && SeqN(lv, rv);
-                        done = done && Boolean(res) === Boolean(old(this));
-                        return res;
+                        let lv = l([old ? old(this) : null, up]), rv = r([old ? old(this) : null, up]);
+                        if(old && this({seq: (l,r) => old(l) === lv && old(r) === rv})) {
+                            return old(this);
+                        } else {
+                            done = false;
+                            return cataF(gmr).seq.call(this, lv,rv);
+                        }
                     }
                 },
-                tok: (t) => up => null,
+                tok: function(t) { return up => old ? old(this) : cataF(gmr).tok.call(this, t) },
                 jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return lst[0]; },
-                eps: () => up => EpsN()
+                eps: function() { return up => old ? old(this) : cataF(gmr).eps.call(this) }
             }, []);
-            f(gmr);
+            f(gmr, gmr);
         }
         memo.set(gmr, f);
-        return f;
+        return (g) => f(gmr, g);
     };
-})(new WeakMap());
+}
+    
 
-let firstSet = (function(memo) {
-    return function(gmr) {
-        if(memo.has(gmr)) return memo.get(gmr);
-        let f = () => new Set(), done = false;
-        while(!done) {
-            let old = f;
-            done = true;
-            f = cata({
-                alt: function(l,r) {
-                    return up => {
-                        let res = new Set([...l([old(this), up]), ...r([old(this), up])]);
-                        done = done && old(this).size === res.size;
-                        return res;
-                    }
-                },
-                seq: function(l,r) {
-                    return up => {
-                        let lv = l([old(this), up]);
-                        let rv = r([old(this), up]);
-                        let res = this({seq: (lo,ro) => emptyNode(lo) ? new Set([...lv, ...rv]) : lv});
-                        done = done && old(this).size === res.size;
-                        return res;
-                    }
-                },
-                tok: (t) => up => new Set([t]),
-                jump: n => up => { let lst = up; while(--n > 0) lst = lst[1]; return lst[0]; },
-                eps: () => up => new Set()
-            }, []);
-            f(gmr);
-        }
-        memo.set(gmr, f);
-        return f;
-    };
-})(new WeakMap());
+let emptyNode = fixGrammarCata(gmr => {
+    tok: () => null,
+    eps: () => EpsN(),
+    alt: (l,r) => l && LeftN(l) || r && RightN(r),
+    seq: (l,r) => l && r && SeqN(l,r)
+});
+
+let emptyOrPlaceholder = fixGrammarCata(gmr => {
+    tok: () => PlaceholderN(),
+    eps: () => EpsN(),
+    seq: (l,r) => SeqN(l,r),
+    alt: function(l,r) { return this({alt: (l,r) => emptyNode(gmr)(l) || emptyNode(gmr)(r) || PlaceholderN()}); }
+});
+
+let firstSet = fixGrammarCata(gmr => {
+    eps: () => new Set(),
+    tok: (t) => new Set([t]),
+    seq: function(l,r) { return this({seq: (lo,ro) => emptyNode(gmr)(lo) ? new Set([...l, ...r]) : l}); },
+    alt: (l,r) => new Set([...l, ...r])
+});
 
 let resolveJumps = (gs) => gs[0]({
     jump: (n) => { let lst = gs; while(n-- > 0) lst = lst[1]; return lst; },
@@ -90,7 +84,7 @@ let resolveJumps = (gs) => gs[0]({
 });
 
 let nodeGrammar = (function(memo) {
-    return (gmr, node) => {
+    return (gmr, nodeParent, node) => {
         if(!memo.has(gmr)) {
             memo.set(gmr, cata({
                 left: (l) => up => (l(resolveJumps([up[0]({alt: (l,r) => l}), up])), up[0]),
@@ -101,18 +95,20 @@ let nodeGrammar = (function(memo) {
                 placeholder: () => up => up[0]
             }, [gmr]));
         }
-        return memo.get(gmr)(node);
+        return memo.get(gmr)(nodeParent, node);
     }
 })(new Map());
+
+function tokType(n) { return n({tok: (t) => t}) }
 
 let llParser = (gmr) => {
     return cata({
         eps: () => up => input => [EpsN(), input],
         tok: (t) => up => input => {
-            if(input.length && input[0].type === t) {
-                return [TokN(input[0].value), input[1]];
+            if(input.length && tokType(input[0]) === t) {
+                return [input[0], input[1]];
             } else {
-                throw new Error(`Parse failed trying to match token ${t} with ${input[0].type}`);
+                throw new Error(`Parse failed trying to match token ${t} with ${tokType(input[0])}`);
             }
         },
         jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return (input) => lst[0](input); },
@@ -132,19 +128,19 @@ let llParser = (gmr) => {
                 let fn;
                 let lv = l([(input) => fn(input), up]);
                 let rv = r([(input) => fn(input), up]);
-                let [lset, rset] = this({alt: (l,r) => [firstSetG(l), firstSetG(r)]});
+                let [lset, rset] = this({alt: (l,r) => [firstSet(gmr)(l), firstSet(gmr)(r)]});
                 fn = (input) => { 
                     if(input.length) {
-                        if(lset.has(input[0].type)) {
+                        if(lset.has(tokType(input[0]))) {
                             let [v,rem] = lv(input);
                             return [LeftN(v), rem];
-                        } else if(rset.has(input[0].type)) {
+                        } else if(rset.has(tokType(input[0]))) {
                             let [v,rem] = rv(input);
                             return [RightN(v), rem];
                         } 
                     }
-                    if(emptyNode(this)) {
-                        return [emptyNode(this), input];
+                    if(emptyNode(gmr)(this)) {
+                        return [emptyNode(gmr)(this), input];
                     } else {
                         throw new Error("Parse failed: end of input");
                     }
@@ -156,6 +152,7 @@ let llParser = (gmr) => {
 };
 
 function extractValue(gmr, adt, fns, ftoken, fplaceholder) {
+    nodeGrammar(gmr, adt);
     function runFns(adt, args) {
         let g = nodeGrammar(gmr, adt);
         if(fns.has(g)) return [fns.get(g)(args)];
@@ -165,10 +162,10 @@ function extractValue(gmr, adt, fns, ftoken, fplaceholder) {
         left: function(l) { return runFns(this, l) },
         right: function(r) { return runFns(this, r) },
         seq: function(l,r) { return runFns(this, [...l, ...r]) },
-        tok: function(t) { return runFns(this, [ftoken.call(this, t)]) },
+        tok: function(t, v) { return runFns(this, [this]) },
         eps: function() { return runFns(this, []) },
         placeholder: function() { return fplaceholder() }
-    })(adt)[0];
+    })(adt, adt)[0];
 }
 
-module.exports = {llParser, extractValue, LeftN, RightN, SeqN, EpsN, TokN, PlaceholderN, nodeSchema, emptyNode, nodeGrammar };
+module.exports = {llParser, extractValue, LeftN, RightN, SeqN, EpsN, TokN, PlaceholderN, nodeSchema, emptyNode, emptyOrPlaceholder, nodeGrammar };
