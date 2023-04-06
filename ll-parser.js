@@ -34,7 +34,7 @@ let fixGrammarCata = (cataF, def=() => null, eq=(l,r) => l === r) => {
     let memo = new WeakMap();
     return function(gmr) {
         if(memo.has(gmr)) return memo.get(gmr);
-        let f, done = false, N = 10;
+        let f, done = false, N = 500;
         while(!done) {
             if(N-- === 0) throw new Error("Ran out of tries");
             let old = f;
@@ -78,21 +78,24 @@ let emptyNode = fixGrammarCata(gmr => ({
     eps: () => EpsN(),
     alt: (l,r) => l && LeftN(l) || r && RightN(r),
     seq: (l,r) => l && r && SeqN(l,r)
-}));
+}), () => null, (l,r) => Boolean(l) === Boolean(r));
 
 let emptyOrPlaceholder = fixGrammarCata(gmr => ({
     tok: (t) => t === '(' || t === ',' || t === ')' ? TokN(t, t) : PlaceholderN(),
     eps: () => EpsN(),
     seq: (l,r) => SeqN(l,r),
-    alt: function(l,r) { return this({alt: (l,r) => emptyNode(gmr)(l) || emptyNode(gmr)(r) || PlaceholderN()}); }
-}), () => PlaceholderN());
+    alt: function(l,r) { return this({alt: (l,r) => (emptyNode(gmr)(l) && LeftN(deepCopy(emptyNode(gmr)(l))))
+                                                || (emptyNode(gmr)(r) && RightN(deepCopy(emptyNode(gmr)(r)))) 
+                                                || PlaceholderN()}); }
+}), () => PlaceholderN(), (l,r) => 
+    l({left: () => 1, right: () => 2, seq: () => 3, placeholder: () => 4, eps: () => 5, tok: () => 6}) === r({left: () => 1, right: () => 2, seq: () => 3, placeholder: () => 4, eps: () => 5, tok: () => 6}));
 
 let firstSet = fixGrammarCata(gmr => ({
     eps: () => new Set(),
     tok: (t) => new Set([t]),
     seq: function(l,r) { return this({seq: (lo,ro) => emptyNode(gmr)(lo) ? new Set([...l, ...r]) : l}); },
     alt: (l,r) => new Set([...l, ...r])
-}), () => new Set());
+}), () => new Set(), (l,r) => l.size === r.size);
 
 let resolveJumps = (gs) => gs[0]({
     jump: (n) => { let lst = gs; while(n-- > 0) lst = lst[1]; return lst; },
@@ -170,7 +173,7 @@ let llParser = (gmr) => {
     }, [])(gmr, gmr);
 };
 
-function extractValue(gmr, rootAdt, fns, fplaceholder) {
+function extractValue(gmr, rootAdt, fns, ftok, fplaceholder) {
     function runFns(adt, args) {
         let g = nodeGrammar(gmr, rootAdt, adt);
         if(fns.has(g)) {
@@ -182,7 +185,7 @@ function extractValue(gmr, rootAdt, fns, fplaceholder) {
         left: function(l) { return runFns(this, l) },
         right: function(r) { return runFns(this, r) },
         seq: function(l,r) { return runFns(this, [...l, ...r]) },
-        tok: function(t, v) { return runFns(this, [this]) },
+        tok: function(t, v) { return runFns(this, [ftok(this)]) },
         eps: function() { return runFns(this, []) },
         placeholder: function() { return runFns(this, [fplaceholder(this)]) }
     })(rootAdt, rootAdt)[0];

@@ -186,7 +186,7 @@ let sepBy1 = combinator(function(elem, sep) {
         inline(() => { return [[], []]; }),
         inline(() => {
             let s = sep();
-            let res = sepBy(elem, sep)();
+            let res = sepBy1(elem, sep)();
             let [es, ss] = res;
             return [es, [s, ...ss]];
         }, elem, sep)
