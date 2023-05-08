@@ -123,35 +123,57 @@ let nodeGrammar = (function(memo) {
 
 function tokType(n) { return n({tok: (t) => t}) }
 
+function tryPlaceholder(inner) {
+    let fn;
+    let innerFn = inner((input) => fn(input));
+    fn = (input) => {
+        if(input.length && tokType(input[0]) === '#(') {
+            let phCore = [], subInput = input;
+            while(subInput.length && tokType(subInput[0]) !== '#)') {
+                phCore = [subInput[0], phCore];
+                subInput = subInput[1];
+            }
+            try {
+                innerFn(ll_reverse(phCore));
+                return [PlaceholderN(), subInput];
+            } catch(e) {
+                if(e.message === `Parse failed: end of input`) {
+                    return innerFn(input);
+                } else {
+                    throw e;
+                }
+            }
+        }
+    };
+    return fn;
+}
+
 let llParser = (gmr) => {
     return cata({
         eps: () => up => input => [EpsN(), input],
-        tok: (t) => up => input => {
+        tok: (t) => up => tryPlaceholder(fn => input => {
             if(input.length && tokType(input[0]) === t) {
                 return [input[0], input[1]];
             } else {
                 throw new Error(`Parse failed trying to match token ${t} with ${tokType(input[0])}`);
             }
         },
-        jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return (input) => lst[0](input); },
-        seq: (l,r) => up => {
-            let fn;
+        jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return tryPlaceholder(fn => (input) => lst[0](input)); },
+        seq: (l,r) => up => tryPlaceholder(fn => {
             let lv = l([(input) => fn(input), up]);
             let rv = r([(input) => fn(input), up]);
-            fn = (input) => {
+            return (input) => {
                 let [v1, rem1] = lv(input);
                 let [v2, rem2] = rv(rem1);
                 return [SeqN(v1, v2), rem2];
             }
-            return fn;
         },
         alt: function(l,r) {
-            return up => {
-                let fn;
+            return up => tryPlaceholder(fn => {
                 let lv = l([(input) => fn(input), up]);
                 let rv = r([(input) => fn(input), up]);
                 let [lset, rset] = this({alt: (l,r) => [firstSet(gmr)(l), firstSet(gmr)(r)]});
-                fn = (input) => { 
+                return (input) => { 
                     if(input.length) {
                         if(lset.has(tokType(input[0]))) {
                             let [v,rem] = lv(input);
@@ -168,7 +190,7 @@ let llParser = (gmr) => {
                     }
                 }
                 return fn;
-            }
+            })
         }
     }, [])(gmr, gmr);
 };
