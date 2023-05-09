@@ -123,19 +123,21 @@ let nodeGrammar = (function(memo) {
 
 function tokType(n) { return n({tok: (t) => t}) }
 
+let ll_reverse = ll => { let out = []; for(; ll.length; ll = ll[1]) { out = [ll[0], out]; } return out; };
+
 function tryPlaceholder(inner) {
     let fn;
     let innerFn = inner((input) => fn(input));
     fn = (input) => {
         if(input.length && tokType(input[0]) === '#(') {
-            let phCore = [], subInput = input;
+            let phCore = [], subInput = input[1];
             while(subInput.length && tokType(subInput[0]) !== '#)') {
                 phCore = [subInput[0], phCore];
                 subInput = subInput[1];
             }
             try {
                 innerFn(ll_reverse(phCore));
-                return [PlaceholderN(), subInput];
+                return [PlaceholderN(), subInput[1]];
             } catch(e) {
                 if(e.message === `Parse failed: end of input`) {
                     return innerFn(input);
@@ -143,6 +145,8 @@ function tryPlaceholder(inner) {
                     throw e;
                 }
             }
+        } else {
+            return innerFn(input);
         }
     };
     return fn;
@@ -157,7 +161,7 @@ let llParser = (gmr) => {
             } else {
                 throw new Error(`Parse failed trying to match token ${t} with ${tokType(input[0])}`);
             }
-        },
+        }),
         jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return tryPlaceholder(fn => (input) => lst[0](input)); },
         seq: (l,r) => up => tryPlaceholder(fn => {
             let lv = l([(input) => fn(input), up]);
@@ -167,7 +171,7 @@ let llParser = (gmr) => {
                 let [v2, rem2] = rv(rem1);
                 return [SeqN(v1, v2), rem2];
             }
-        },
+        }),
         alt: function(l,r) {
             return up => tryPlaceholder(fn => {
                 let lv = l([(input) => fn(input), up]);
