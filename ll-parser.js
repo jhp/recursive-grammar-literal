@@ -207,14 +207,14 @@ function extractValue(gmr, rootAdt, fns, ftok, fplaceholder) {
         }
         return args;
     }
-    return cata({
+    return fns.get('top')([cata({
         left: function(l) { return runFns(this, l) },
         right: function(r) { return runFns(this, r) },
         seq: function(l,r) { return runFns(this, [...l, ...r]) },
         tok: function(t, v) { return runFns(this, [ftok(this)]) },
         eps: function() { return runFns(this, []) },
         placeholder: function() { return runFns(this, [fplaceholder(this)]) }
-    })(rootAdt, rootAdt)[0];
+    })(rootAdt, rootAdt)[0]]);
 }
 
 module.exports = {deepCopy, llParser, extractValue, LeftN, RightN, SeqN, EpsN, TokN, PlaceholderN, nodeSchema, emptyNode, emptyOrPlaceholder, nodeGrammar, fixGrammarCata };

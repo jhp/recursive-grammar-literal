@@ -40,7 +40,9 @@ function toGrammar(parseFunction, exampleToken=() => "") {
             function buildAlts(seqs, n=0) {
                 if(seqs.length === 1) {
                     let seqG = buildSeqs(seqs[0].gs, n);
-                    associatedFunctions.set(seqG, seqs[0].f);
+                    if(seqs[0].f) {
+                        associatedFunctions.set(seqG, seqs[0].f);
+                    }
                     return seqG;
                 }
                 let mid = Math.floor(seqs.length / 2);
@@ -89,7 +91,7 @@ function toGrammar(parseFunction, exampleToken=() => "") {
                 }
             },
             readToken: (tok) => exampleToken(tok)
-        }, () => oneOf(parseFunction));
+        }, parseFunction);
     }
     let seq = [];
     withImpls({
@@ -136,8 +138,13 @@ function toGrammar(parseFunction, exampleToken=() => "") {
             seq.push( () => TokG(tok) );
             return exampleToken(tok);
         }
-    }, () => oneOf(parseFunction));
-    return {gmr: build([{gs: seq, f: ([res]) => res}])([]), fns: associatedFunctions};
+    }, parseFunction);
+    let topFn = (args) => {
+        let idx = 0;
+        return withImpls({readToken: () => args[idx++], oneOf: () => args[idx++]}, parseFunction);
+    }
+    associatedFunctions.set('top', topFn);
+    return {gmr: build([{gs: seq}])([]), fns: associatedFunctions};
 }
 
 let combinator = ((memo) => {
