@@ -152,52 +152,77 @@ function tryPlaceholder(inner) {
     return fn;
 }
 
-let llParser = (gmr) => {
-    return cata({
-        eps: () => up => input => [EpsN(), input],
-        tok: (t) => up => tryPlaceholder(fn => input => {
-            if(input.length && tokType(input[0]) === t) {
-                return [input[0], input[1]];
-            } else {
-                throw new Error(`Parse failed trying to match token ${t} with ${tokType(input[0])}`);
-            }
-        }),
-        jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return tryPlaceholder(fn => (input) => lst[0](input)); },
-        seq: (l,r) => up => tryPlaceholder(fn => {
+let llParserCata = cata(gmr => ({
+    eps: () => up => input => [EpsN(), input],
+    tok: (t) => up => tryPlaceholder(fn => input => {
+        if(input.length && tokType(input[0]) === t) {
+            return [input[0], input[1]];
+        } else {
+            throw new Error(`Parse failed trying to match token ${t} with ${tokType(input[0])}`);
+        }
+    }),
+    jump: (n) => up => { let lst = up; while(--n > 0) lst = lst[1]; return tryPlaceholder(fn => (input) => lst[0](input)); },
+    seq: (l,r) => up => tryPlaceholder(fn => {
+        let lv = l([(input) => fn(input), up]);
+        let rv = r([(input) => fn(input), up]);
+        return (input) => {
+            let [v1, rem1] = lv(input);
+            let [v2, rem2] = rv(rem1);
+            return [SeqN(v1, v2), rem2];
+        }
+    }),
+    alt: function(l,r) {
+        return up => tryPlaceholder(fn => {
             let lv = l([(input) => fn(input), up]);
             let rv = r([(input) => fn(input), up]);
-            return (input) => {
-                let [v1, rem1] = lv(input);
-                let [v2, rem2] = rv(rem1);
-                return [SeqN(v1, v2), rem2];
-            }
-        }),
-        alt: function(l,r) {
-            return up => tryPlaceholder(fn => {
-                let lv = l([(input) => fn(input), up]);
-                let rv = r([(input) => fn(input), up]);
-                let [lset, rset] = this({alt: (l,r) => [firstSet(gmr)(l), firstSet(gmr)(r)]});
-                return (input) => { 
-                    if(input.length) {
-                        if(lset.has(tokType(input[0]))) {
-                            let [v,rem] = lv(input);
-                            return [LeftN(v), rem];
-                        } else if(rset.has(tokType(input[0]))) {
-                            let [v,rem] = rv(input);
-                            return [RightN(v), rem];
-                        } 
-                    }
-                    if(emptyNode(gmr)(this)) {
-                        return [deepCopy(emptyNode(gmr)(this)), input];
-                    } else {
-                        throw new Error("Parse failed: end of input");
-                    }
+            let [lset, rset] = this({alt: (l,r) => [firstSet(gmr)(l), firstSet(gmr)(r)]});
+            return (input) => { 
+                if(input.length) {
+                    if(lset.has(tokType(input[0]))) {
+                        let [v,rem] = lv(input);
+                        return [LeftN(v), rem];
+                    } else if(rset.has(tokType(input[0]))) {
+                        let [v,rem] = rv(input);
+                        return [RightN(v), rem];
+                    } 
                 }
-                return fn;
-            })
+                if(emptyNode(gmr)(this)) {
+                    return [deepCopy(emptyNode(gmr)(this)), input];
+                } else {
+                    throw new Error("Parse failed: end of input");
+                }
+            }
+            return fn;
+        })
+    }
+}), [])
+
+let llParser = (gmr) => {
+    return llParserCata(gmr, gmr);
+}
+
+function trySelf(gmr, fn) {
+    return function(...args) {
+        return input => {
+            try {
+                let [res, extra] = llParser(gmr, this)(input);
+                if(extra.length === 0) return res;
+            } catch(e) {
+                if(!e.message.startsWith("Parse failed")) {
+                    throw e;
+                }
+            }
+            return fn.call(this, ...args)(input);
         }
-    }, [])(gmr, gmr);
-};
+    }
+}
+let topGrammarForTokens = cata(gmr => ({
+    alt: trySelf(gmr, (l,r) => input => l(input) || r(input)),
+    seq: trySelf(gmr, (l,r) => input => l(input) || r(input)),
+    jump: () => input => null,
+    tok: trySelf(() => null),
+    eps: () => input => null
+}));
 
 function extractValue(gmr, rootAdt, fns, ftok, fplaceholder) {
     function runFns(adt, args) {
@@ -217,4 +242,4 @@ function extractValue(gmr, rootAdt, fns, ftok, fplaceholder) {
     })(rootAdt, rootAdt)[0]]);
 }
 
-module.exports = {deepCopy, llParser, extractValue, LeftN, RightN, SeqN, EpsN, TokN, PlaceholderN, nodeSchema, emptyNode, emptyOrPlaceholder, nodeGrammar, fixGrammarCata };
+module.exports = {deepCopy, llParser, extractValue, LeftN, RightN, SeqN, EpsN, TokN, PlaceholderN, nodeSchema, emptyNode, emptyOrPlaceholder, nodeGrammar, fixGrammarCata, topGrammarForTokens };
